@@ -9,9 +9,10 @@ RUN npm ci
 FROM base AS builder
 RUN apk add --no-cache openssl
 WORKDIR /app
+ENV DATABASE_URL="postgresql://build:build@localhost:5432/build"
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-RUN DATABASE_URL="postgresql://build:build@localhost:5432/build" npx prisma generate
+RUN npx prisma generate
 ENV NEXT_PHASE=phase-production-build
 RUN npm run build
 
