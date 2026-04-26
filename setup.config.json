@@ -1,0 +1,76 @@
+{
+  "project": {
+    "name": "Whatsapp_Renostter_Agente_IA",
+    "slug": "renostter-agente-ia",
+    "repoPath": "C:/Users/JP/Documents/ANTGRAVITY/renostter-site/Site-Renostter/claude code whatsaap/PROMPT/renostter-agente-ia",
+    "language": "pt-BR"
+  },
+  "channels": {
+    "waha_core": {
+      "enabled": true,
+      "image": "devlikeapro/waha",
+      "engine": "GOWS",
+      "port": 8080,
+      "sessions": ["default"]
+    },
+    "waha_plus": { "enabled": false },
+    "evolution_api": { "enabled": false },
+    "whatsapp_cloud": { "enabled": false },
+    "instagram_direct": { "enabled": false }
+  },
+  "useCase": "sdr_presales",
+  "volume": "up_to_10",
+  "llm": {
+    "provider": "google",
+    "model": "gemini-2.5-flash",
+    "fallback": "queue_retry",
+    "retryCount": 3,
+    "retryBackoffMs": 1000,
+    "embeddingModel": "gemini-embedding-001"
+  },
+  "memory": {
+    "type": "summary_rolling",
+    "rollingWindow": 10,
+    "summaryTriggerTokens": 3000
+  },
+  "tools": {
+    "rag": { "enabled": true, "vectorProvider": "pgvector" },
+    "calendar": { "enabled": true, "provider": "google_cal" },
+    "webSearch": { "enabled": false },
+    "webhookCustom": { "enabled": true }
+  },
+  "handoff": {
+    "trigger": "keyword",
+    "keywords": ["falar com atendente", "humano", "atendente", "suporte humano"],
+    "destination": "same_channel"
+  },
+  "schedule": { "mode": "24_7" },
+  "db": {
+    "type": "postgres_railway",
+    "orm": "prisma",
+    "prismaVersion": "^6"
+  },
+  "cache": {
+    "enabled": true,
+    "provider": "redis_railway",
+    "debounceConfigurableInApp": true,
+    "debounceDefaultMs": 5000,
+    "lockTtlMultiplier": 4
+  },
+  "auth": {
+    "type": "password_env",
+    "envVar": "PANEL_PASSWORD"
+  },
+  "domain": { "type": "railway_subdomain" },
+  "railway": {
+    "services": ["app", "postgres", "redis", "waha"],
+    "privateNetworking": true
+  },
+  "ui": {
+    "framework": "nextjs",
+    "componentLib": "shadcn",
+    "theme": "nova",
+    "accent": "alien-green",
+    "darkByDefault": true
+  }
+}

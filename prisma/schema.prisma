@@ -1,0 +1,94 @@
+generator client {
+  provider        = "prisma-client"
+  output          = "../src/generated/prisma"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [pgvector(map: "vector")]
+}
+
+model Contact {
+  id            String            @id @default(cuid())
+  displayName   String
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  identities    ContactIdentity[]
+  conversations Conversation[]
+}
+
+model ContactIdentity {
+  id         String   @id @default(cuid())
+  channel    String
+  externalId String
+  contactId  String
+  contact    Contact  @relation(fields: [contactId], references: [id])
+  createdAt  DateTime @default(now())
+
+  @@unique([channel, externalId])
+}
+
+model Conversation {
+  id               String    @id @default(cuid())
+  channel          String
+  contactId        String
+  contact          Contact   @relation(fields: [contactId], references: [id])
+  aiEnabled        Boolean   @default(true)
+  handoffRequested Boolean   @default(false)
+  summary          String?   @db.Text
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  messages         Message[]
+
+  @@unique([channel, contactId])
+}
+
+model Message {
+  id             String       @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id])
+  role           String
+  content        String       @db.Text
+  providerMsgId  String?      @unique
+  createdAt      DateTime     @default(now())
+}
+
+model AgentSession {
+  id           String   @id @default(cuid())
+  name         String   @default("Default")
+  systemPrompt String   @db.Text
+  model        String   @default("gemini-2.5-flash")
+  temperature  Float    @default(0.7)
+  debounceMs   Int      @default(5000)
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Document {
+  id        String          @id @default(cuid())
+  filename  String
+  content   String          @db.Text
+  chunks    DocumentChunk[]
+  createdAt DateTime        @default(now())
+}
+
+model DocumentChunk {
+  id         String                      @id @default(cuid())
+  documentId String
+  document   Document                    @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  content    String                      @db.Text
+  embedding  Unsupported("vector(768)")?
+  createdAt  DateTime                    @default(now())
+}
+
+model RetryQueue {
+  id             String   @id @default(cuid())
+  conversationId String
+  payload        String   @db.Text
+  attempts       Int      @default(0)
+  nextRetryAt    DateTime @default(now())
+  createdAt      DateTime @default(now())
+}
