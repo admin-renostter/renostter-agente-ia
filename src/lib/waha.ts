@@ -1,6 +1,6 @@
 const WAHA_BASE = process.env.WAHA_BASE_URL ?? "http://localhost:8080";
 const WAHA_SESSION = process.env.WAHA_SESSION ?? "default";
-const WAHA_API_KEY = process.env.WHATSAPP_API_KEY ?? "";
+const WAHA_API_KEY = process.env.WAHA_API_KEY ?? process.env.WHATSAPP_API_KEY ?? "";
 
 function wahaHeaders(json = true): Record<string, string> {
   const h: Record<string, string> = { "X-Api-Key": WAHA_API_KEY };
