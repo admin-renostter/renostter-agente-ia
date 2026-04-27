@@ -52,7 +52,7 @@ export default async function ConfiguracoesPage() {
       {/* AI */}
       <section className="rounded-xl border border-border bg-card p-6 space-y-1">
         <h2 className="font-semibold mb-3">Inteligência Artificial</h2>
-        <ConfigRow label="GEMINI_API_KEY" value={process.env.GEMINI_API_KEY ?? "—"} masked />
+        <ConfigRow label="GOOGLE_API_KEY" value={process.env.GOOGLE_API_KEY ?? "—"} masked />
         <ConfigRow label="Modelo padrão" value="gemini-2.5-flash" />
       </section>
 
