@@ -12,10 +12,9 @@ function ConfigRow({ label, value, masked }: { label: string; value: string; mas
 
 export default async function ConfiguracoesPage() {
   const wahaUrl =
-    process.env.WAHA_BASE_URL?.replace("railway.internal", "production-fbb2.up.railway.app").replace(
-      "http://waha",
-      "https://waha"
-    ) ?? "—";
+    process.env.WAHA_BASE_URL
+      ?.replace("http://", "https://")
+      .replace(".railway.internal:8080", "-production-fbb2.up.railway.app") ?? "—";
 
   return (
     <main className="flex-1 p-8 space-y-8 max-w-2xl">
@@ -32,8 +31,8 @@ export default async function ConfiguracoesPage() {
         <ConfigRow label="WAHA_BASE_URL" value={process.env.WAHA_BASE_URL ?? "—"} />
         <ConfigRow label="Painel público" value={wahaUrl} />
         <ConfigRow
-          label="WHATSAPP_API_KEY"
-          value={process.env.WHATSAPP_API_KEY ?? "—"}
+          label="WAHA_API_KEY"
+          value={process.env.WAHA_API_KEY ?? process.env.WHATSAPP_API_KEY ?? "—"}
           masked
         />
         <ConfigRow label="WAHA_SESSION" value={process.env.WAHA_SESSION ?? "default"} />

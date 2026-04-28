@@ -11,7 +11,9 @@ export default async function OnboardingPage() {
     prisma.conversation.count(),
   ]);
 
-  const wahaUrl = process.env.WAHA_BASE_URL?.replace("railway.internal", "production-fbb2.up.railway.app").replace("http://waha", "https://waha") ?? "#";
+  const wahaUrl = process.env.WAHA_BASE_URL
+    ?.replace("http://", "https://")
+    .replace(".railway.internal:8080", "-production-fbb2.up.railway.app") ?? "#";
 
   const steps = [
     {
