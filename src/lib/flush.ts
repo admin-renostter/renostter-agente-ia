@@ -2,6 +2,7 @@ import { prisma } from "./prisma";
 import { chat } from "./gemini";
 import { sendText } from "./waha";
 import type { ChannelMessage } from "./debounce";
+import { randomUUID } from "crypto";
 
 const HANDOFF_KEYWORDS = [
   "falar com atendente",
@@ -49,7 +50,7 @@ export async function flushConversation(
   // Persist inbound messages
   for (const msg of msgs) {
     await prisma.message.upsert({
-      where: { providerMsgId: msg.providerMsgId ?? `noid-${Date.now()}` },
+      where: { providerMsgId: msg.providerMsgId ?? randomUUID() },
       update: {},
       create: {
         conversationId,

@@ -7,7 +7,20 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
-  const data = await request.json();
-  const agent = await prisma.agentSession.create({ data });
+  const body = await request.json().catch(() => ({}));
+  const { name, systemPrompt, model, temperature, debounceMs, active } = body;
+  if (!systemPrompt) {
+    return NextResponse.json({ error: "systemPrompt required" }, { status: 400 });
+  }
+  const agent = await prisma.agentSession.create({
+    data: {
+      name: typeof name === "string" ? name : "Default",
+      systemPrompt: String(systemPrompt),
+      model: typeof model === "string" ? model : "gemini-2.5-flash",
+      temperature: typeof temperature === "number" ? Math.min(Math.max(temperature, 0), 1) : 0.7,
+      debounceMs: typeof debounceMs === "number" ? Math.min(Math.max(debounceMs, 500), 30000) : 5000,
+      active: typeof active === "boolean" ? active : true,
+    },
+  });
   return NextResponse.json(agent, { status: 201 });
 }

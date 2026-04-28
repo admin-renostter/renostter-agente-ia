@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@/generated/prisma/client";
 import { enqueueDebounce } from "@/lib/debounce";
+import { getRedis } from "@/lib/redis";
 
 export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => null);
@@ -24,12 +25,19 @@ export async function POST(request: NextRequest) {
   const text: string = payload.body ?? "";
   const displayName: string = payload.notifyName ?? externalId;
 
-  // Dedup by providerMsgId (§0.9.5)
+  // Dedup by providerMsgId via Redis (fast, prevents race conditions)
   if (providerMsgId) {
-    const dup = await prisma.message.findUnique({ where: { providerMsgId } });
-    if (dup) {
-      console.log(JSON.stringify({ event: "webhook.waha.duplicate", providerMsgId }));
-      return NextResponse.json({ ok: true, duplicate: true });
+    try {
+      const redis = getRedis();
+      const isNew = await redis.set(`seen:${providerMsgId}`, "1", "PX", 120_000, "NX");
+      if (!isNew) {
+        console.log(JSON.stringify({ event: "webhook.waha.duplicate", providerMsgId }));
+        return NextResponse.json({ ok: true, duplicate: true });
+      }
+    } catch {
+      // Redis unavailable — fall back to DB check
+      const dup = await prisma.message.findUnique({ where: { providerMsgId } });
+      if (dup) return NextResponse.json({ ok: true, duplicate: true });
     }
   }
 
