@@ -24,8 +24,9 @@ export async function enqueueDebounce(
 
   const key = `debounce:${msg.channel}:${msg.contactId}`;
   const queueKey = `dqueue:${msg.channel}:${msg.contactId}`;
-  const lockKey = `dlock:${msg.channel}:${msg.contactId}`;
-  const lockTtlMs = debounceMs * 4; // §0.9.23
+  const lockTtlMs = debounceMs * 4;
+  // Key TTL must outlast the setTimeout delay (debounceMs + 50ms + processing headroom)
+  const keyTtlMs = debounceMs + 2000;
 
   try {
     const pipeline = redis.multi();
@@ -33,30 +34,26 @@ export async function enqueueDebounce(
     pipeline.pexpire(queueKey, lockTtlMs);
     await pipeline.exec();
 
+    // Always overwrite with a new token so only the latest timer processes
     const token = `${Date.now()}-${Math.random()}`;
-    const set = await redis.set(key, token, "PX", debounceMs, "NX");
+    await redis.set(key, token, "PX", keyTtlMs);
 
-    if (set === "OK") {
-      setTimeout(async () => {
-        const current = await redis.get(key);
-        if (current === null) {
-          console.error(JSON.stringify({ event: "debounce.lock_expired", key }));
-          return;
-        }
-        if (current !== token) {
-          console.log(JSON.stringify({ event: "debounce.superseded", key }));
-          return;
-        }
-        await redis.del(key);
-        const rawMsgs = await redis.lrange(queueKey, 0, -1);
-        await redis.del(queueKey);
-        const msgs: ChannelMessage[] = rawMsgs.map((r) => JSON.parse(r));
-        await flushConversation(msg.conversationId, msgs);
-      }, debounceMs + 50);
-    } else {
-      // Reset lock TTL on new message
-      await redis.pexpire(key, debounceMs);
-    }
+    setTimeout(async () => {
+      const current = await redis.get(key);
+      if (current === null) {
+        console.error(JSON.stringify({ event: "debounce.lock_expired", key }));
+        return;
+      }
+      if (current !== token) {
+        console.log(JSON.stringify({ event: "debounce.superseded", key }));
+        return;
+      }
+      await redis.del(key);
+      const rawMsgs = await redis.lrange(queueKey, 0, -1);
+      await redis.del(queueKey);
+      const msgs: ChannelMessage[] = rawMsgs.map((r) => JSON.parse(r));
+      await flushConversation(msg.conversationId, msgs);
+    }, debounceMs + 50);
   } catch (err) {
     console.error(JSON.stringify({ event: "debounce.error", err: String(err) }));
     await flushConversation(msg.conversationId, [msg]);
