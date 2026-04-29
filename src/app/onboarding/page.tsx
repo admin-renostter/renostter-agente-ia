@@ -1,19 +1,32 @@
 import Link from "next/link";
 import { CheckCircle, Circle, ExternalLink } from "lucide-react";
 import { prisma } from "@/lib/prisma";
+import { getSessionInfo } from "@/lib/waha";
 
 export const dynamic = "force-dynamic";
 
 export default async function OnboardingPage() {
-  const [agentCount, docCount, convCount] = await Promise.all([
+  const [agentCount, docCount, convCount, sessionInfo] = await Promise.all([
     prisma.agentSession.count({ where: { active: true } }),
     prisma.document.count(),
     prisma.conversation.count(),
+    getSessionInfo(),
   ]);
 
   const wahaUrl = process.env.WAHA_BASE_URL
     ?.replace("http://", "https://")
     .replace(".railway.internal:8080", "-production-fbb2.up.railway.app") ?? "#";
+
+  const appUrl =
+    process.env.NEXT_PUBLIC_APP_URL ??
+    (process.env.RAILWAY_PUBLIC_DOMAIN
+      ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
+      : null);
+  const expectedHook = appUrl ? `${appUrl}/api/webhooks/waha` : null;
+  const webhookOk = expectedHook
+    ? sessionInfo.webhooks.includes(expectedHook)
+    : false;
+  const wahaConnected = sessionInfo.status === "WORKING";
 
   const steps = [
     {
@@ -23,10 +36,16 @@ export default async function OnboardingPage() {
       action: { label: "Configurar agente", href: "/agents" },
     },
     {
+      title: "Webhook registrado",
+      description: `O Waha precisa saber onde enviar mensagens. Status atual: ${sessionInfo.webhooks.length > 0 ? sessionInfo.webhooks.join(", ") : "nenhum webhook configurado"}.`,
+      done: webhookOk,
+      action: { label: "Registrar webhook agora", href: "/api/setup", method: "POST" as const },
+    },
+    {
       title: "WhatsApp conectado",
-      description: "Escaneie o QR code no painel do Waha para conectar o número.",
-      done: convCount > 0,
-      action: { label: "Abrir painel Waha", href: "https://waha-production-fbb2.up.railway.app", external: true },
+      description: `Escaneie o QR code no painel do Waha para conectar o número. Status: ${sessionInfo.status}`,
+      done: wahaConnected,
+      action: { label: "Abrir painel Waha", href: wahaUrl, external: true },
     },
     {
       title: "Documentos RAG",
@@ -99,7 +118,16 @@ export default async function OnboardingPage() {
                 )}
               </div>
               <p className="text-sm text-muted-foreground">{step.description}</p>
-              {"external" in step.action && step.action.external ? (
+              {"method" in step.action && step.action.method === "POST" ? (
+                <form action={step.action.href} method="POST">
+                  <button
+                    type="submit"
+                    className="inline-flex items-center gap-1.5 text-xs text-primary hover:underline"
+                  >
+                    {step.action.label} →
+                  </button>
+                </form>
+              ) : "external" in step.action && step.action.external ? (
                 <a
                   href={step.action.href}
                   target="_blank"

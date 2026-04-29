@@ -5,6 +5,14 @@ import { enqueueDebounce } from "@/lib/debounce";
 import { getRedis } from "@/lib/redis";
 
 export async function POST(request: NextRequest) {
+  const wahaKey = process.env.WAHA_API_KEY ?? process.env.WHATSAPP_API_KEY ?? "";
+  if (wahaKey) {
+    const incoming = request.headers.get("x-api-key") ?? "";
+    if (incoming !== wahaKey) {
+      return NextResponse.json({ ok: false }, { status: 401 });
+    }
+  }
+
   const body = await request.json().catch(() => null);
   if (!body) return NextResponse.json({ ok: false }, { status: 400 });
 

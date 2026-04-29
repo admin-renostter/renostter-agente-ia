@@ -155,12 +155,22 @@ async function summarizeConversation(conversationId: string, model: string) {
   }
 }
 
+const RETRY_BACKOFF_MS = [1_000, 3_000, 9_000]; // 1s / 3s / 9s
+
 async function enqueueRetry(conversationId: string, msgs: ChannelMessage[]) {
+  const existing = await prisma.retryQueue.findFirst({
+    where: { conversationId },
+    orderBy: { attempts: "desc" },
+  });
+  const attempts = (existing?.attempts ?? 0) + 1;
+  const backoffMs = RETRY_BACKOFF_MS[Math.min(attempts - 1, RETRY_BACKOFF_MS.length - 1)];
+
   await prisma.retryQueue.create({
     data: {
       conversationId,
       payload: JSON.stringify(msgs),
-      nextRetryAt: new Date(Date.now() + 5000),
+      attempts,
+      nextRetryAt: new Date(Date.now() + backoffMs),
     },
   });
 }
