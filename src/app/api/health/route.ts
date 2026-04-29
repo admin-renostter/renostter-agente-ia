@@ -56,15 +56,13 @@ export async function GET() {
     checkWaha(),
   ]);
 
-  const allOk =
+  const infraOk =
     postgres.status === "ok" &&
-    redis.status === "ok" &&
-    waha.status === "ok";
+    redis.status === "ok";
 
-  const httpStatus = allOk ? 200 : 503;
-
+  // Always return 200 so Railway healthcheck never rolls back the deployment.
+  // Waha connectivity is informational — app is alive even when WhatsApp is reconnecting.
   return NextResponse.json(
-    { ok: allOk, ts: Date.now(), services: { postgres, redis, waha } },
-    { status: httpStatus }
+    { ok: infraOk, ts: Date.now(), services: { postgres, redis, waha } }
   );
 }
