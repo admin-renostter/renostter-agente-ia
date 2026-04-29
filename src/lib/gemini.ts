@@ -27,7 +27,7 @@ export async function chat(
 
 export async function embed(texts: string[]): Promise<number[][]> {
   const { embeddings } = await embedMany({
-    model: google.textEmbeddingModel("gemini-embedding-2", {}),
+    model: google.textEmbeddingModel("gemini-embedding-2"),
     values: texts,
   });
   return embeddings;
