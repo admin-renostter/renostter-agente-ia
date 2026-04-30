@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { sendText, getSessionInfo } from "@/lib/waha";
 import { chat } from "@/lib/gemini";
 
-// GET /api/test — pipeline status check
+// GET /api/test — pipeline status check (v2)
 export async function GET() {
   const [agent, sessionInfo, convCount] = await Promise.all([
     prisma.agentSession.findFirst({ where: { active: true } }),
