@@ -91,7 +91,10 @@ export async function flushConversation(
   try {
     reply = await chat(agent.model, systemPrompt, history, agent.temperature);
   } catch (err) {
-    console.error(JSON.stringify({ event: "flush.llm_failed", conversationId, err: String(err) }));
+    const errMsg = String(err);
+    const cause = err instanceof Error && (err as Error & { cause?: unknown }).cause;
+    const causeMsg = cause ? String(cause) : undefined;
+    console.error(JSON.stringify({ event: "flush.llm_failed", conversationId, model: agent.model, err: errMsg, cause: causeMsg }));
     await enqueueRetry(conversationId, msgs);
     return;
   }
