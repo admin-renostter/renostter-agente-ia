@@ -33,6 +33,12 @@ export async function POST(request: NextRequest) {
   const text: string = payload.body ?? "";
   const displayName: string = payload.notifyName ?? externalId;
 
+  // Skip group messages, status broadcasts, and empty messages — each costs a Gemini call
+  if (externalId.includes("@g.us") || externalId.includes("status@broadcast") || !text.trim()) {
+    console.log(JSON.stringify({ event: "webhook.waha.skipped", reason: "group_or_status_or_empty", externalId }));
+    return NextResponse.json({ ok: true, skipped: true });
+  }
+
   // Dedup by providerMsgId via Redis (fast, prevents race conditions)
   if (providerMsgId) {
     try {
