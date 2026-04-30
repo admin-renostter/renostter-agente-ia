@@ -11,7 +11,7 @@ RUN apk add --no-cache openssl
 WORKDIR /app
 ENV DATABASE_URL="postgresql://build:build@localhost:5432/build"
 COPY --from=deps /app/node_modules ./node_modules
-ARG BUILDTIME=unknown
+ARG BUILDTIME=2026-04-30T12-00
 COPY . .
 RUN npx prisma generate
 ENV NEXT_PHASE=phase-production-build
