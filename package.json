@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@ai-sdk/google": "^3.0.64",
+    "@ai-sdk/openai": "^3.0.54",
     "@base-ui/react": "^1.4.1",
     "@prisma/client": "^6.19.3",
     "ai": "^6.0.168",
