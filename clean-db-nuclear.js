@@ -1,5 +1,7 @@
-const { PrismaClient } = require('./src/generated/prisma/client');
+const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
+
+
 
 async function main() {
   console.log('🔍 Checking for image.png in database...\n');

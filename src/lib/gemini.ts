@@ -2,6 +2,7 @@ import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createOpenAI } from "@ai-sdk/openai";
 import { generateText } from "ai";
 import { getRedis } from "./redis";
+import { sanitizeText } from "./sanitize";
 
 const GOOGLE_API_KEYS = (process.env.GOOGLE_API_KEYS ?? process.env.GOOGLE_API_KEY ?? "")
   .split(",")
@@ -21,33 +22,6 @@ function getOpenRouter() {
 export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
-}
-
-// Simple function to remove image references
-function cleanText(text: string): string {
-  if (!text) return "[EMPTY]";
-  
-  let cleaned = text;
-  
-  // Remove any occurrence of image.png (case insensitive)
-  cleaned = cleaned.replace(/image\.png/gi, " ");
-  cleaned = cleaned.replace(/image\.jpg/gi, " ");
-  cleaned = cleaned.replace(/image\.jpeg/gi, " ");
-  
-  // Remove quoted filenames
-  cleaned = cleaned.replace(/"image\.\w+"/gi, " ");
-  cleaned = cleaned.replace(/'image\.\w+'/gi, " ");
-  
-  // Remove any "image" word followed by dot and extension
-  cleaned = cleaned.replace(/\bimage\s*[.":]\s*\w+\.\w{3,4}/gi, " ");
-  
-  // Keep only printable ASCII
-  cleaned = cleaned.split('').filter(c => {
-    const code = c.charCodeAt(0);
-    return (code >= 0x20 && code <= 0x7E) || code === 0x0A || code === 0x0D;
-  }).join('');
-  
-  return cleaned.trim() || "[CONTENT_REMOVED]";
 }
 
 function resolveModel(modelId: string, apiKey?: string) {
@@ -83,20 +57,17 @@ export async function chat(
     throw new Error("No Google API keys configured");
   }
 
-  // Clean ALL input
-  const cleanSystem = cleanText(systemPrompt);
-  
+  const cleanSystem = sanitizeText(systemPrompt);
   const cleanMessages = messages.map(msg => ({
     role: msg.role === "user" ? "user" as const : "assistant" as const,
-    content: cleanText(msg.content || "")
+    content: sanitizeText(msg.content || ""),
   }));
 
-  // Log what we're sending
   console.log(JSON.stringify({
     event: "gemini.call",
     model,
     systemPreview: cleanSystem.substring(0, 100),
-    messageCount: cleanMessages.length
+    messageCount: cleanMessages.length,
   }));
 
   const availableKeys = GOOGLE_API_KEYS.length > 0 ? GOOGLE_API_KEYS : [undefined];
@@ -119,24 +90,23 @@ export async function chat(
       return text;
     } catch (err) {
       const errMsg = String(err);
-      
-      // Handle image errors - simple check
-      const isImageError = errMsg.toLowerCase().includes("image") && 
-                             (errMsg.toLowerCase().includes("cannot read") || 
-                              errMsg.toLowerCase().includes("not support"));
-      
+
+      const isImageError =
+        errMsg.toLowerCase().includes("image") &&
+        (errMsg.toLowerCase().includes("cannot read") ||
+          errMsg.toLowerCase().includes("not support"));
+
       if (isImageError) {
         console.error(JSON.stringify({ event: "gemini.image_error", err: errMsg }));
         return "📝 Atendimento apenas por texto no momento. Por favor, envie sua dúvida digitada (sem imagens).";
       }
-      
-      // Handle quota errors
+
       if (errMsg.includes("429") || errMsg.toLowerCase().includes("quota")) {
         console.error(JSON.stringify({ event: "gemini.quota", key: key?.slice(0, 15) }));
         if (key) await markKeyExhausted(key);
         continue;
       }
-      
+
       lastError = err instanceof Error ? err : new Error(errMsg);
       break;
     }
@@ -147,14 +117,14 @@ export async function chat(
 
 export async function embed(texts: string[]): Promise<number[][]> {
   const availableKeys = GOOGLE_API_KEYS.length > 0 ? GOOGLE_API_KEYS : [undefined];
-  
+
   for (const key of availableKeys) {
     if (key && await isKeyExhausted(key)) continue;
-    
+
     try {
       const google = createGoogleGenerativeAI({ apiKey: key });
       const { embeddings } = await import("ai").then(m => m.embedMany({
-        model: google.textEmbeddingModel("gemini-embedding-2"),
+        model: google.embeddingModel("gemini-embedding-2"),
         values: texts,
       }));
       return embeddings;
@@ -167,6 +137,6 @@ export async function embed(texts: string[]): Promise<number[][]> {
       throw err;
     }
   }
-  
+
   throw new Error("All API keys exhausted for embeddings");
 }

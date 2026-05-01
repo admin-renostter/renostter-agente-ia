@@ -1,9 +1,26 @@
 import { NextResponse } from "next/server";
-import { registerWebhook, getSessionInfo } from "@/lib/waha";
+import { registerWebhook, getSessionInfo, startSession } from "@/lib/waha";
+
+const STOPPED_STATES = new Set(["STOPPED", "FAILED", "UNKNOWN"]);
 
 export async function POST() {
+  // 1. Register webhook
   const result = await registerWebhook();
-  const session = await getSessionInfo();
+
+  // 2. Check session and auto-start if stopped
+  let session = await getSessionInfo();
+
+  if (STOPPED_STATES.has(session.status)) {
+    try {
+      await startSession();
+      // Wait briefly for the session to transition out of STOPPED
+      await new Promise((r) => setTimeout(r, 1500));
+      session = await getSessionInfo();
+    } catch (err) {
+      console.error(JSON.stringify({ event: "setup.start_session_failed", err: String(err) }));
+    }
+  }
+
   return NextResponse.json({ ...result, session }, { status: result.ok ? 200 : 502 });
 }
 

@@ -78,12 +78,20 @@ export async function sendText(chatId: string, text: string): Promise<void> {
   }
 }
 
-export async function startSession(): Promise<void> {
-  await fetch(`${WAHA_BASE}/api/sessions/start`, {
+export async function startSession(): Promise<{ started: boolean; status: string }> {
+  const res = await fetch(`${WAHA_BASE}/api/sessions/${WAHA_SESSION}/start`, {
     method: "POST",
     headers: wahaHeaders(),
-    body: JSON.stringify({ name: WAHA_SESSION }),
   });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    console.error(JSON.stringify({ event: "waha.start_session_failed", status: res.status, body }));
+    return { started: false, status: "ERROR" };
+  }
+  const data = await res.json().catch(() => ({}));
+  const status: string = data.status ?? "STARTING";
+  console.log(JSON.stringify({ event: "waha.session_started", status }));
+  return { started: true, status };
 }
 
 export async function getSessionStatus(): Promise<string> {

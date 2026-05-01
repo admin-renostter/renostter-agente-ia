@@ -1,6 +1,7 @@
 import { prisma } from "./prisma";
 import { chat } from "./gemini";
 import { sendText } from "./waha";
+import { sanitizeText, UX_MESSAGES } from "./sanitize";
 import type { ChannelMessage } from "./debounce";
 import { randomUUID } from "crypto";
 
@@ -34,7 +35,6 @@ export async function flushConversation(
 
   const combinedText = msgs.map((m) => m.text).join("\n");
 
-  // Handoff check
   const isHandoff = HANDOFF_KEYWORDS.some((kw) =>
     combinedText.toLowerCase().includes(kw)
   );
@@ -61,7 +61,6 @@ export async function flushConversation(
     });
   }
 
-  // Get agent config
   const agent = await prisma.agentSession.findFirst({ where: { active: true } });
   if (!agent) {
     console.error(JSON.stringify({ event: "flush.no_agent", conversationId }));
@@ -72,112 +71,45 @@ export async function flushConversation(
   const recentMsgs = await prisma.message.findMany({
     where: {
       conversationId,
+      NOT: {
+        OR: [
+          { content: { contains: ".png" } },
+          { content: { contains: ".jpg" } },
+          { content: { contains: ".jpeg" } },
+          { content: { contains: ".gif" } },
+          { content: { contains: ".webp" } },
+          { content: { contains: "data:image" } },
+          { content: { contains: "image" } },
+        ],
+      },
     },
     orderBy: { createdAt: "desc" },
-    take: 20, // fetch more to filter out bad ones
+    take: 10,
   });
-  
+
   console.log(JSON.stringify({
-    event: "flush.history.raw",
+    event: "flush.history",
     conversationId,
-    totalFetched: recentMsgs.length,
-    messages: recentMsgs.map(m => ({
-      id: m.id,
-      role: m.role,
-      contentPreview: m.content ? m.content.substring(0, 100) : null,
-      contentLength: m.content ? m.content.length : 0
-    }))
+    count: recentMsgs.length,
   }));
 
-  // Filter out messages that might have image references
-  const textOnlyMsgs = recentMsgs.filter((m) => {
-    if (!m.content) {
-      console.log(JSON.stringify({ event: "flush.history.skip", reason: "empty_content", msgId: m.id }));
-      return false;
-    }
-    const c = m.content.toLowerCase();
-    // Skip messages that look like image references
-    const skip = c.includes('.png') || 
-                c.includes('.jpg') || 
-                c.includes('.jpeg') || 
-                c.includes('.gif') ||
-                c.includes('image') ||
-                c.includes('data:image') ||
-                c.includes('.webp');
-    
-    if (skip) {
-      console.log(JSON.stringify({ event: "flush.history.skip", reason: "image_reference", msgId: m.id, preview: m.content.substring(0, 50) }));
-    }
-    return !skip;
-  }).slice(0, 10); // take only 10 after filtering
-  
-  console.log(JSON.stringify({
-    event: "flush.history.filtered",
-    conversationId,
-    originalCount: recentMsgs.length,
-    filteredCount: textOnlyMsgs.length,
-    willSendToLLM: textOnlyMsgs.map(m => ({ role: m.role, preview: m.content.substring(0, 50) }))
-  }));
-
-  textOnlyMsgs.reverse();
-
-  // DEEP SANITIZATION: Ensure ONLY clean text reaches the LLM
-  const history = textOnlyMsgs.map((m) => {
-    let cleanContent = m.content || "";
-    
-    // Aggressive cleanup: remove any potential image references
-    cleanContent = cleanContent
-      .replace(/data:image\/[^;]+;base64[^"'\s]*/gi, '[IMAGE_REMOVED]')
-      .replace(/https?:\/\/[^\s]+\.(png|jpg|jpeg|gif|webp|svg|bmp)([^\s]*)?/gi, '[IMAGE_URL_REMOVED]')
-      .replace(/[^\x20-\x7E\x0A\x0D\xC0-\xFF]/g, '') // Remove non-printable chars except newlines
-      .replace(/image\.png|image\.jpg|image\.jpeg/gi, '[IMAGE_REF]')
-      .trim();
-    
-    // If content became empty or suspicious after cleanup, provide fallback
-    if (!cleanContent || cleanContent.length < 2) {
-      cleanContent = m.role === 'user' ? '[Mensagem não legível]' : '[Conteúdo removido]';
-    }
-    
-    return {
+  const history = recentMsgs
+    .reverse()
+    .map((m) => ({
       role: m.role as "user" | "assistant",
-      content: cleanContent,
-    };
-  });
+      content: sanitizeText(m.content || ""),
+    }));
 
-  // FINAL SAFETY CHECK: Log exactly what will be sent to LLM
-  console.log(JSON.stringify({
-    event: "flush.llm_payload",
-    conversationId,
-    messageCount: history.length,
-    messages: history.map(m => ({
-      role: m.role,
-      contentLength: m.content.length,
-      contentPreview: m.content.substring(0, 100)
-    }))
-  }));
-
-  // Sanitize summary and system prompt to remove any image references
-  let cleanSummary = conv.summary || "";
-  if (cleanSummary) {
-    cleanSummary = cleanSummary
-      .replace(/data:image\/[^;]+;base64[^"'\s]*/gi, '[IMAGE_REMOVED]')
-      .replace(/https?:\/\/[^\s]+\.(png|jpg|jpeg|gif|webp)([^\s]*)?/gi, '[IMAGE_URL_REMOVED]')
-      .replace(/image\.png|image\.jpg|image\.jpeg/gi, '[IMAGE_REF]');
-  }
-
-  let cleanSystemPrompt = agent.systemPrompt || "";
-  cleanSystemPrompt = cleanSystemPrompt
-    .replace(/data:image\/[^;]+;base64[^"'\s]*/gi, '[IMAGE_REMOVED]')
-    .replace(/https?:\/\/[^\s]+\.(png|jpg|jpeg|gif|webp)([^\s]*)?/gi, '[IMAGE_URL_REMOVED]')
-    .replace(/image\.png|image\.jpg|image\.jpeg/gi, '[IMAGE_REF]');
-
-  const systemPrompt = cleanSummary
-    ? `${cleanSystemPrompt}\n\n[Resumo da conversa anterior]: ${cleanSummary}`
-    : cleanSystemPrompt;
+  // Cached base prompt + summary appended at runtime (summary changes per conversation)
+  const { getCachedSystemPrompt } = await import("./prompt-cache");
+  const basePrompt = getCachedSystemPrompt(agent.systemPrompt, agent.id);
+  const systemPrompt = conv.summary
+    ? `${basePrompt}\n\n[Resumo da conversa anterior]: ${sanitizeText(conv.summary)}`
+    : basePrompt;
 
   console.log(JSON.stringify({ event: "flush.decided", decision: "respond", conversationId }));
 
-  // Resolve externalId BEFORE LLM call — needed if all API keys exhausted (§0.9.27)
+  // Resolve externalId BEFORE LLM call — needed if all keys are exhausted (§0.9.27)
   const externalId =
     msgs[0]?.contactId ??
     (await (async () => {
@@ -198,15 +130,13 @@ export async function flushConversation(
   } catch (err) {
     const errMsg = String(err);
     const cause = err instanceof Error && (err as Error & { cause?: unknown }).cause;
-    const causeMsg = cause ? String(cause) : undefined;
-    console.error(JSON.stringify({ event: "flush.llm_failed", conversationId, model: agent.model, err: errMsg, cause: causeMsg }));
+    console.error(JSON.stringify({ event: "flush.llm_failed", conversationId, model: agent.model, err: errMsg, cause: cause ? String(cause) : undefined }));
 
-    // Check if ALL API keys are exhausted (quota exceeded for all)
-    const isAllKeysExhausted = errMsg.toLowerCase().includes("all api keys exhausted") ||
-                              (errMsg.includes("429") && errMsg.toLowerCase().includes("quota"));
+    const isAllKeysExhausted =
+      errMsg.toLowerCase().includes("all api keys exhausted") ||
+      (errMsg.includes("429") && errMsg.toLowerCase().includes("quota"));
 
     if (isAllKeysExhausted) {
-      console.error(JSON.stringify({ event: "flush.all_keys_exhausted", conversationId, action: "send_unavailable_message" }));
       await sendUnavailableMessage(externalId, conv);
       return;
     }
@@ -215,12 +145,10 @@ export async function flushConversation(
     return;
   }
 
-  // Persist assistant reply
   await prisma.message.create({
     data: { conversationId, role: "assistant", content: reply },
   });
 
-  // Summarize if too many messages
   const totalMsgs = await prisma.message.count({ where: { conversationId } });
   if (totalMsgs > 30) {
     await summarizeConversation(conversationId, agent.model);
@@ -242,45 +170,29 @@ async function summarizeConversation(conversationId: string, model: string) {
     where: { conversationId },
     orderBy: { createdAt: "asc" },
   });
-  
-  // Sanitize transcript to remove any image references
-  const transcript = allMsgs.map((m) => {
-    let content = m.content || "";
-    // Aggressive cleanup for text-only agent
-    content = content
-      .replace(/data:image\/[^;]+;base64[^"'\s]*/gi, '[IMAGE_REMOVED]')
-      .replace(/https?:\/\/[^\s]+\.(png|jpg|jpeg|gif|webp|svg|bmp)([^\s]*)?/gi, '[IMAGE_URL_REMOVED]')
-      .replace(/[^\x20-\x7E\x0A\x0D\xC0-\xFF]/g, '') // Remove non-printable except newlines
-      .replace(/image\.png|image\.jpg|image\.jpeg/gi, '[IMAGE_REF]')
-      .replace(/\.png|\.jpg|\.jpeg|\.gif|\.webp/gi, '[IMAGE]')
-      .trim();
-    return `${m.role}: ${content}`;
-  }).join("\n");
-  
-  console.log(JSON.stringify({
-    event: "flush.summarize",
-    conversationId,
-    transcriptLength: transcript.length,
-    transcriptPreview: transcript.substring(0, 200)
-  }));
+
+  const transcript = allMsgs
+    .map((m) => `${m.role}: ${sanitizeText(m.content || "")}`)
+    .join("\n");
 
   const summary = await chat(
     model,
     "Resuma esta conversa em 3–5 frases, preservando detalhes importantes do lead.",
     [{ role: "user", content: transcript }]
   );
+
   await prisma.conversation.update({
     where: { id: conversationId },
     data: { summary },
   });
-  // Keep only last 10 messages
+
   const toDelete = allMsgs.slice(0, allMsgs.length - 10).map((m) => m.id);
   if (toDelete.length > 0) {
     await prisma.message.deleteMany({ where: { id: { in: toDelete } } });
   }
 }
 
-const RETRY_BACKOFF_MS = [1_000, 3_000, 9_000]; // 1s / 3s / 9s
+const RETRY_BACKOFF_MS = [1_000, 3_000, 9_000];
 
 async function enqueueRetry(conversationId: string, msgs: ChannelMessage[]) {
   const existing = await prisma.retryQueue.findFirst({
@@ -300,24 +212,17 @@ async function enqueueRetry(conversationId: string, msgs: ChannelMessage[]) {
   });
 }
 
-// Message sent when ALL API keys are exhausted (quota exceeded for all keys)
-const UNAVAILABLE_MESSAGE = "⚠️ Estou temporariamente indisponível devido a limites técnicos de processamento. " +
-  "Tente novamente em algumas horas ou, se preferir, digite 'falar com atendente' para ser direcionado ao suporte humano.";
-
-async function sendUnavailableMessage(externalId: string, conv: Awaited<ReturnType<typeof prisma.conversation.findUnique>>) {
+async function sendUnavailableMessage(
+  externalId: string,
+  conv: Awaited<ReturnType<typeof prisma.conversation.findUnique>>
+) {
   if (!externalId || !conv) return;
 
   try {
-    await sendText(externalId, UNAVAILABLE_MESSAGE);
-    console.log(JSON.stringify({ event: "flush.unavailable_msg_sent", conversationId: conv.id, externalId }));
-
-    // Persist the message in DB
+    await sendText(externalId, UX_MESSAGES.quota);
+    console.log(JSON.stringify({ event: "flush.unavailable_msg_sent", conversationId: conv.id }));
     await prisma.message.create({
-      data: {
-        conversationId: conv.id,
-        role: "assistant",
-        content: UNAVAILABLE_MESSAGE,
-      },
+      data: { conversationId: conv.id, role: "assistant", content: UX_MESSAGES.quota },
     });
   } catch (err) {
     console.error(JSON.stringify({ event: "flush.unavailable_msg_failed", conversationId: conv.id, err: String(err) }));

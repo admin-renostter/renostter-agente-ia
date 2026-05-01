@@ -1,0 +1,16 @@
+# Railway configuration for Redis service
+# This service provides Redis for message debounce
+
+[build]
+  builder = "DOCKERFILE"
+  dockerfilePath = "infra/redis.conf"
+
+[deploy]
+  startCommand = "redis-server /etc/redis/redis.conf"
+  healthcheckPath = "/"
+  healthcheckTimeout = 300
+  restartPolicyType = "ON_FAILURE"
+  restartPolicyMaxRetries = 3
+
+# Environment variables (set in Railway dashboard)
+# REDIS_PASSWORD=  (optional)
