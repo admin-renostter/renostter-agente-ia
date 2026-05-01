@@ -1,10 +1,13 @@
 import { NextResponse } from "next/server";
-import { registerWebhook, getSessionInfo, startSession } from "@/lib/waha";
+import { ensureSession, registerWebhook, getSessionInfo, startSession } from "@/lib/waha";
 
 const STOPPED_STATES = new Set(["STOPPED", "FAILED", "UNKNOWN"]);
 
 export async function POST() {
-  // 1. Register webhook
+  // 1. Ensure session exists before configuring it
+  await ensureSession();
+
+  // 2. Register webhook
   const result = await registerWebhook();
 
   // 2. Check session and auto-start if stopped

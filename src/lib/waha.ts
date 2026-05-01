@@ -15,6 +15,17 @@ function resolveAppUrl(): string | null {
   return null;
 }
 
+export async function ensureSession(): Promise<void> {
+  try {
+    await fetch(`${WAHA_BASE}/api/sessions`, {
+      method: "POST",
+      headers: wahaHeaders(),
+      body: JSON.stringify({ name: WAHA_SESSION }),
+    });
+    // Ignore errors — session may already exist (409 Conflict is normal)
+  } catch { /* ignore */ }
+}
+
 export async function registerWebhook(): Promise<{ ok: boolean; detail: string }> {
   const appUrl = resolveAppUrl();
   if (!appUrl) {
@@ -27,12 +38,23 @@ export async function registerWebhook(): Promise<{ ok: boolean; detail: string }
     .map((e) => e.trim())
     .filter(Boolean);
 
+  type WebhookEntry = {
+    url: string;
+    events: string[];
+    customHeaders?: { name: string; value: string }[];
+  };
+
+  const webhookEntry: WebhookEntry = { url: hookUrl, events };
+  if (WAHA_API_KEY) {
+    webhookEntry.customHeaders = [{ name: "X-Api-Key", value: WAHA_API_KEY }];
+  }
+
   try {
     const res = await fetch(`${WAHA_BASE}/api/sessions/${WAHA_SESSION}`, {
       method: "PUT",
       headers: wahaHeaders(),
       body: JSON.stringify({
-        config: { webhooks: [{ url: hookUrl, events }] },
+        config: { webhooks: [webhookEntry] },
       }),
     });
     if (res.ok) {

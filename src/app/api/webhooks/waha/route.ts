@@ -47,6 +47,20 @@ export async function POST(request: NextRequest) {
 
   console.log(JSON.stringify({ event: "webhook.waha.recv", type: body.event }));
 
+  if (body.event === "session.status") {
+    const sessionStatus: string = body.payload?.status ?? body.status ?? "UNKNOWN";
+    console.log(JSON.stringify({ event: "webhook.waha.session_status", status: sessionStatus }));
+
+    if (sessionStatus === "STOPPED" || sessionStatus === "FAILED") {
+      try {
+        const { startSession } = await import("@/lib/waha");
+        await startSession();
+      } catch { /* ignore — WAHA might not be ready yet */ }
+    }
+
+    return NextResponse.json({ ok: true });
+  }
+
   if (body.event !== "message") {
     return NextResponse.json({ ok: true, skipped: true });
   }
