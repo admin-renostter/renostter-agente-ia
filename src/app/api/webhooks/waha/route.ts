@@ -32,10 +32,27 @@ export async function POST(request: NextRequest) {
   const externalId: string = payload.from; // always @c.us or @lid (§0.9.21)
   const text: string = payload.body ?? "";
   const displayName: string = payload.notifyName ?? externalId;
+  const hasMedia = payload.hasMedia === true;
 
   // Skip group messages, status broadcasts, and empty messages — each costs a Gemini call
-  if (externalId.includes("@g.us") || externalId.includes("status@broadcast") || !text.trim()) {
-    console.log(JSON.stringify({ event: "webhook.waha.skipped", reason: "group_or_status_or_empty", externalId }));
+  if (externalId.includes("@g.us") || externalId.includes("status@broadcast")) {
+    console.log(JSON.stringify({ event: "webhook.waha.skipped", reason: "group_or_status", externalId }));
+    return NextResponse.json({ ok: true, skipped: true });
+  }
+
+  // Waha Core is TEXT-ONLY (§0.9 Waha Core spec). Ignore media messages.
+  if (hasMedia) {
+    console.log(JSON.stringify({ event: "webhook.waha.skipped", reason: "media_not_supported", externalId, mediaType: payload.type }));
+    // Send polite message to user about text-only limitation
+    try {
+      const { sendText } = await import("@/lib/waha");
+      await sendText(externalId, "📝 Atendimento apenas por texto no momento. Por favor, envie sua dúvida digitada.");
+    } catch { /* ignore send errors */ }
+    return NextResponse.json({ ok: true, skipped: true, media: true });
+  }
+
+  if (!text.trim()) {
+    console.log(JSON.stringify({ event: "webhook.waha.skipped", reason: "empty_message", externalId }));
     return NextResponse.json({ ok: true, skipped: true });
   }
 
